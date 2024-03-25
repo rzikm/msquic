@@ -625,7 +625,7 @@ QuicRecvBufferRead(
                 QUIC_RECV_CHUNK,
                 Link);
         CXPLAT_DBG_ASSERT(!Chunk->ExternalReference);
-        CXPLAT_DBG_ASSERT(RecvBuffer->ReadStart == 0);
+        // CXPLAT_DBG_ASSERT(RecvBuffer->ReadStart == 0);
         CXPLAT_DBG_ASSERT(*BufferCount >= 1);
         CXPLAT_DBG_ASSERT(ContiguousLength <= (uint64_t)Chunk->AllocLength);
 
@@ -633,7 +633,7 @@ QuicRecvBufferRead(
         *BufferOffset = RecvBuffer->BaseOffset;
         RecvBuffer->ReadPendingLength += ContiguousLength;
         Buffers[0].Length = (uint32_t)ContiguousLength;
-        Buffers[0].Buffer = Chunk->Buffer;
+        Buffers[0].Buffer = Chunk->Buffer + RecvBuffer->ReadStart;
         Chunk->ExternalReference = TRUE;
 
     } else if (RecvBuffer->RecvMode == QUIC_RECV_BUF_MODE_CIRCULAR) {
@@ -850,8 +850,12 @@ QuicRecvBufferFullDrain(
 
     Chunk->ExternalReference = FALSE;
     DrainLength -= RecvBuffer->ReadLength;
-    RecvBuffer->ReadStart = 0;
     RecvBuffer->BaseOffset += RecvBuffer->ReadLength;
+    if (RecvBuffer->WrittenRanges.UsedLength == 1) {
+        RecvBuffer->ReadStart = 0;
+    } else {
+        RecvBuffer->ReadStart += RecvBuffer->ReadLength;
+    }
     RecvBuffer->ReadLength =
         (uint32_t)(QuicRangeGet(&RecvBuffer->WrittenRanges, 0)->Count - RecvBuffer->BaseOffset);
 
@@ -907,12 +911,7 @@ QuicRecvBufferDrain(
     }
 
     do {
-        if ((uint64_t)RecvBuffer->ReadLength > DrainLength ||
-            //
-            // If there are more than 2 written ranges, it means that there may be
-            // more data later in the chunk that couldn't be read because there is a gap.
-            //
-            RecvBuffer->WrittenRanges.UsedLength > 1) {
+        if ((uint64_t)RecvBuffer->ReadLength > DrainLength) {
             QuicRecvBufferPartialDrain(RecvBuffer, DrainLength);
             return FALSE;
         }
